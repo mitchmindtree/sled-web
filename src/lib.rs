@@ -26,13 +26,18 @@
 //!          | DELETE /tree/:table/entries/:key          | a `Table` entry by key.
 //!          | PUT    /tree/:table/entries/:key_value    | a new `Table` entry by key/value pair.
 
-pub extern crate hyper;
+#[macro_use] extern crate serde_derive;
+extern crate futures;
+extern crate http;
 extern crate serde;
 extern crate serde_json;
-#[macro_use] extern crate serde_derive;
+pub extern crate hyper;
 pub extern crate sled_table;
 
+pub use client::Client;
 pub use sled_table::sled;
 
-pub mod req;
+pub mod client;
+pub mod request;
+pub mod response;
 pub mod server;

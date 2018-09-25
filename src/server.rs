@@ -1,8 +1,10 @@
-use hyper::{self, Body, Response, Server};
+use hyper::{self, Server};
 use hyper::rt::Future;
-use hyper::service::service_fn_ok;
+use hyper::service::service_fn;
+use response::response;
 use sled;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 // Request strings.
 
@@ -58,41 +60,24 @@ impl ConfigBuilder {
 
 // Pure functions.
 
-// /// Build the hyper `Server` with the given configuration and `sled::Tree`.
-// pub fn new(config: Config, tree: sled::Tree) -> impl Future {
-//     Server::bind(&config.addr)
-//         .serve(|| {
-//             service_fn(|req| {
-//                 Response::new(Body::from("test"))
-//             })
-//         })
-// }
+/// Build the hyper `Server` with the given configuration and `sled::Tree`.
+///
+/// Returns a `Future` representing the `Server`'s computation.
+pub fn new(config: Config, tree: sled::Tree) -> impl Future<Item = (), Error = hyper::Error> {
+    let tree = Arc::new(tree);
+    Server::bind(&config.addr)
+        .serve(move || {
+            let tree = tree.clone();
+            service_fn(move |req| {
+                response(req, tree.clone())
+            })
+        })
+}
 
 /// Build and run a hyper `Server` using the default runtime with the given configuration and
 /// `sled::Tree`.
 pub fn run(config: Config, tree: sled::Tree) {
-    let service = || {
-        service_fn_ok(|_| {
-            Response::new(Body::from("test"))
-        })
-    };
-
-    let server = Server::bind(&config.addr)
-        .serve(service)
+    let server = new(config, tree)
         .map_err(|e| eprintln!("error occurred: {}", e));
-
     hyper::rt::run(server);
-}
-
-pub fn respond(req: Request<Vec<u8>>) -> Response<Vec<u8>> {
-    match req.uri() {
-        req::Get::URI => {
-        }
-        req::Del::URI => {
-        }
-        req::Set::URI => {
-        }
-        _ => {
-        },
-    }
 }

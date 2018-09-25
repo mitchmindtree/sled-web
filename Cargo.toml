@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 
 [dependencies]
+futures = "0.1"
+http = "0.1"
 hyper = "0.12"
 serde = "1"
 serde_derive = "1"
