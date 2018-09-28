@@ -29,9 +29,9 @@ pub trait IntoRequest: RequestType + IntoBody {
     fn into_request(self, base_uri: Uri) -> Request<Body>;
 }
 
-// The vector of bytes used as a key into a `sled::Tree`.
+/// The vector of bytes used as a key into a `sled::Tree`.
 type Key = Vec<u8>;
-// The vector of bytes representing a value within a `sled::Tree`.
+/// The vector of bytes representing a value within a `sled::Tree`.
 type Value = Vec<u8>;
 
 /// Get a single entry from the DB, identified by the given unique key.
@@ -63,6 +63,43 @@ pub struct Scan {
     pub key: Key,
 }
 
+/// Iterate over all entries within the `Tree` within the given key range.
+///
+/// The given range is non-inclusive of the `end` key.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ScanRange {
+    pub start: Key,
+    pub end: Key,
+}
+
+/// Retrieve the entry with the greatest `Key` in the `Tree`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Max;
+
+/// Retrieve the entry that precedes the `Key`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Pred {
+    pub key: Key,
+}
+
+/// Retrieve the entry that precedes or includes the `Key`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PredIncl {
+    pub key: Key,
+}
+
+/// Retrieve the entry that follows the `Key`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Succ {
+    pub key: Key,
+}
+
+/// Retrieve the entry that follows or includes the `Key`.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SuccIncl {
+    pub key: Key,
+}
+
 impl RequestType for Get {
     const METHOD: Method = Method::GET;
     const PATH_AND_QUERY: &'static str = "/tree/entries/get";
@@ -88,6 +125,36 @@ impl RequestType for Scan {
     const PATH_AND_QUERY: &'static str = "/tree/entries/scan";
 }
 
+impl RequestType for ScanRange {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/scan_range";
+}
+
+impl RequestType for Max {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/max";
+}
+
+impl RequestType for Pred {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/pred";
+}
+
+impl RequestType for PredIncl {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/pred_incl";
+}
+
+impl RequestType for Succ {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/succ";
+}
+
+impl RequestType for SuccIncl {
+    const METHOD: Method = Method::GET;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/succ_incl";
+}
+
 impl IntoBody for Get {
     type Body = Self;
     fn into_body(self) -> Self::Body { self }
@@ -109,6 +176,36 @@ impl IntoBody for Iter {
 }
 
 impl IntoBody for Scan {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for ScanRange {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Max {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Pred {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for PredIncl {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Succ {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for SuccIncl {
     type Body = Self;
     fn into_body(self) -> Self::Body { self }
 }
@@ -153,27 +250,57 @@ where
     req.into_request(base_uri)
 }
 
-/// Shorthand for `from(Get { key })`.
+/// Shorthand for `from(base_uri, Get { key })`.
 pub fn get(base_uri: Uri, key: Key) -> Request<Body> {
     from(base_uri, Get { key })
 }
 
-/// Shorthand for `from(Del { key })`.
+/// Shorthand for `from(base_uri, Del { key })`.
 pub fn del(base_uri: Uri, key: Key) -> Request<Body> {
     from(base_uri, Del { key })
 }
 
-/// Shorthand for `from(Set { key, value })`.
+/// Shorthand for `from(base_uri, Set { key, value })`.
 pub fn set(base_uri: Uri, key: Key, value: Value) -> Request<Body> {
     from(base_uri, Set { key, value })
 }
 
-/// Shorthand for `from(Iter)`.
+/// Shorthand for `from(base_uri, Iter)`.
 pub fn iter(base_uri: Uri) -> Request<Body> {
     from(base_uri, Iter)
 }
 
-/// Shorthand for `from(Scan { key })`.
+/// Shorthand for `from(base_uri, Scan { key })`.
 pub fn scan(base_uri: Uri, key: Key) -> Request<Body> {
     from(base_uri, Scan { key })
+}
+
+/// Shorthand for `from(base_uri, ScanRange { start, end })`.
+pub fn scan_range(base_uri: Uri, start: Key, end: Key) -> Request<Body> {
+    from(base_uri, ScanRange { start, end })
+}
+
+/// Shorthand for `from(base_uri, Max)`.
+pub fn max(base_uri: Uri) -> Request<Body> {
+    from(base_uri, Max)
+}
+
+/// Shorthand for `from(base_uri, Pred { key })`.
+pub fn pred(base_uri: Uri, key: Key) -> Request<Body> {
+    from(base_uri, Pred { key })
+}
+
+/// Shorthand for `from(base_uri, PredIncl { key })`.
+pub fn pred_incl(base_uri: Uri, key: Key) -> Request<Body> {
+    from(base_uri, PredIncl { key })
+}
+
+/// Shorthand for `from(base_uri, Succ { key })`.
+pub fn succ(base_uri: Uri, key: Key) -> Request<Body> {
+    from(base_uri, Succ { key })
+}
+
+/// Shorthand for `from(base_uri, SuccIncl { key })`.
+pub fn succ_incl(base_uri: Uri, key: Key) -> Request<Body> {
+    from(base_uri, SuccIncl { key })
 }

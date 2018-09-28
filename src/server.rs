@@ -63,8 +63,7 @@ impl ConfigBuilder {
 /// Build the hyper `Server` with the given configuration and `sled::Tree`.
 ///
 /// Returns a `Future` representing the `Server`'s computation.
-pub fn new(config: Config, tree: sled::Tree) -> impl Future<Item = (), Error = hyper::Error> {
-    let tree = Arc::new(tree);
+pub fn new(config: Config, tree: Arc<sled::Tree>) -> impl Future<Item = (), Error = hyper::Error> {
     Server::bind(&config.addr)
         .serve(move || {
             let tree = tree.clone();
@@ -76,7 +75,7 @@ pub fn new(config: Config, tree: sled::Tree) -> impl Future<Item = (), Error = h
 
 /// Build and run a hyper `Server` using the default runtime with the given configuration and
 /// `sled::Tree`.
-pub fn run(config: Config, tree: sled::Tree) {
+pub fn run(config: Config, tree: Arc<sled::Tree>) {
     let server = new(config, tree)
         .map_err(|e| eprintln!("error occurred: {}", e));
     hyper::rt::run(server);

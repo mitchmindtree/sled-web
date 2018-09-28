@@ -2,29 +2,24 @@
 //!
 //! ## API
 //!
-//! REST:
+//! | HTTP Request                      | Description
+//! |-----------------------------------|--------------------------------------
+//! | GET    /tree/entries/get          | Get a `Tree` entry by key.
+//! | DELETE /tree/entries/del          | Delete a `Tree` entry by key.
+//! | POST   /tree/entries/set          | Set a new `Tree` entry by key/value pair.
+//! | GET    /tree/entries/iter         | Iterate over all `Tree` entries.
+//! | GET    /tree/entries/scan         | Iterate over all `Tree` entries starting from a key.
+//! | GET    /tree/entries/scan_range   | Iterate over all `Tree` entries within a key range.
+//! | GET    /tree/entries/max          | Get the greatest `Tree` entry.
+//! | GET    /tree/entries/pred         | Get the `Tree` entry preceding a key.
+//! | GET    /tree/entries/pred_incl    | Get the `Tree` entry preceding or including a key.
+//! | GET    /tree/entries/succ         | Get the `Tree` entry succeeding a key.
+//! | GET    /tree/entries/succ_incl    | Get the `Tree` entry succeeding or including a key.
 //!
-//!          | HTTP Request                              | Description
-//! ---------|-------------------------------------------|--------------------------------------
-//! Tree     |                                           |
-//!          | GET    /tree                              | whole `Tree`.
-//!          | GET    /tree/iter                         | `iter` of `Tree` entries.
-//!          | GET    /tree/scan/:key                    | `scan` of `Tree` entries.
-//!          | GET    /tree/entries/:key                 | a specific `Tree` entry by key.
-//!          | DELETE /tree/entries/:key                 | a `Tree` entry by key.
-//!          | PUT    /tree/entries/:key_value           | a new `Tree` entry by key/value pair.
+//! See the `request` module for the expected request types. The server expects the corresponding
+//! request type serialized to JSON within the `Body` of the received `Request`.
 //!
-//! The following should not be implemented, however there should be something similar implemented
-//! in the API that translates each of these into their raw `Tree` calls as above.
-//!
-//! ---------|-------------------------------------------|--------------------------------------
-//! Table    |                                           |
-//!          | GET    /tree/:table                       | whole `Table`.
-//!          | GET    /tree/:table/iter                  | `iter` of `Table` entries.
-//!          | GET    /tree/:table/scan/:key             | `scan` of `Table` entries.
-//!          | GET    /tree/:table/entries/:key          | a specific `Table` entry by key.
-//!          | DELETE /tree/:table/entries/:key          | a `Table` entry by key.
-//!          | PUT    /tree/:table/entries/:key_value    | a new `Table` entry by key/value pair.
+//! See the `response::response` function for the associated responses, their status and layout.
 
 #[macro_use] extern crate serde_derive;
 extern crate futures;
@@ -32,10 +27,10 @@ extern crate http;
 extern crate serde;
 extern crate serde_json;
 pub extern crate hyper;
-pub extern crate sled_table;
+pub extern crate sled_search;
 
 pub use client::Client;
-pub use sled_table::sled;
+pub use sled_search::sled;
 
 pub mod client;
 pub mod request;

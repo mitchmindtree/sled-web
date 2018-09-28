@@ -5,6 +5,7 @@ use request::{self, RequestType};
 use serde::Deserialize;
 use serde_json;
 use sled;
+use sled_search;
 use std::error::Error as StdError;
 use std::mem;
 use std::sync::Arc;
@@ -99,6 +100,96 @@ impl IntoResponse for request::Scan {
     }
 }
 
+impl IntoResponse for request::ScanRange {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        let request::ScanRange { start, end } = self;
+        let scan = tree_scan(tree, &start)
+            .filter_map(move |res| {
+                let (k, v) = match res {
+                    Err(err) => return Some(Err(Box::new(err) as Box<StdError + Send + Sync>)),
+                    Ok(kv) => kv,
+                };
+                if k >= end {
+                    return None;
+                }
+                let bytes = match serde_json::to_vec(&(k, v)) {
+                    Err(err) => return Some(Err(Box::new(err))),
+                    Ok(bytes) => bytes,
+                };
+                Some(Ok(Chunk::from(bytes)))
+            });
+        let stream = Box::new(futures::stream::iter_result(scan)) as Box<_>;
+        Response::builder()
+            .body(Body::from(stream))
+            .expect("failed to construct `Iter` response")
+    }
+}
+
+impl IntoResponse for request::Max {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        sled_search::max(&tree)
+            .map(|entry| {
+                let bytes = serde_json::to_vec(&entry)
+                    .expect("failed to serialize entry to JSON");
+                Response::builder()
+                    .body(bytes.into())
+                    .expect("failed to construct `Max` response")
+            })
+            .unwrap_or_else(|err| db_err_response(&err))
+    }
+}
+
+impl IntoResponse for request::Pred {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        sled_search::pred(&tree, &self.key)
+            .map(|entry| {
+                let bytes = serde_json::to_vec(&entry)
+                    .expect("failed to serialize entry to JSON");
+                Response::new(bytes.into())
+            })
+            .unwrap_or_else(|err| db_err_response(&err))
+    }
+}
+
+impl IntoResponse for request::PredIncl {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        sled_search::pred_incl(&tree, &self.key)
+            .map(|entry| {
+                let bytes = serde_json::to_vec(&entry)
+                    .expect("failed to serialize entry to JSON");
+                Response::new(bytes.into())
+            })
+            .unwrap_or_else(|err| db_err_response(&err))
+    }
+}
+
+impl IntoResponse for request::Succ {
+    fn into_response(mut self, tree: Arc<sled::Tree>) -> Response<Body> {
+        self.key.push(0);
+        let entry = match tree.scan(&self.key).next() {
+            Some(Err(err)) => return db_err_response(&err),
+            Some(Ok(entry)) => Some(entry),
+            None => None,
+        };
+        let bytes = serde_json::to_vec(&entry)
+            .expect("failed to serialize entry to JSON");
+        Response::new(bytes.into())
+    }
+}
+
+impl IntoResponse for request::SuccIncl {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        let entry = match tree.scan(&self.key).next() {
+            Some(Err(err)) => return db_err_response(&err),
+            Some(Ok(entry)) => Some(entry),
+            None => None,
+        };
+        let bytes = serde_json::to_vec(&entry)
+            .expect("failed to serialize entry to JSON");
+        Response::new(bytes.into())
+    }
+}
+
 impl Iterator for Iter {
     type Item = sled::DbResult<(Vec<u8>, Vec<u8>), ()>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -179,25 +270,32 @@ fn deserialization_err_response(err: &StdError) -> Response<Body> {
 ///
 /// All response bodies will be serialized to JSON bytes.
 ///
-/// | **Description**                   | **Status**        | **Body**          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::get` returns `Ok`          | 200 OK            | `Option<Vec<u8>>` |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::del` returns `Ok`          | 200 OK            | `Option<Vec<u8>>` |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::set` returns `Ok`          | 201 Created       | `()`              |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Get::deserialize` returns `Err`  | 400 Bad Request   | `String`          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Del::deserialize` returns `Err`  | 400 Bad Request   | `String`          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Set::deserialize` returns `Err`  | 400 Bad Request   | `String`          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::get` returns `Err`         | 500 Server Error  | `String`          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::del` returns `Err`         | 500 Server Error  | `String`          |
-/// | --------------------------------- | ----------------- | ----------------- |
-/// | `Tree::set` returns `Err`         | 500 Server Error  | `String`          |
+/// | **Description**                   | **Status**        | **Body**                          |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::get` returns `Ok`          | 200 OK            | `Option<Vec<u8>>`                 |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::del` returns `Ok`          | 200 OK            | `Option<Vec<u8>>`                 |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::set` returns `Ok`          | 201 Created       | `()`                              |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::iter`                      | 200 OK            | Stream of `(Vec<u8>, Vec<u8>)`    |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::scan`                      | 200 OK            | Stream of `(Vec<u8>, Vec<u8>)`    |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::scan_range`                | 200 OK            | Stream of `(Vec<u8>, Vec<u8>)`    |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::pred` returns `Ok`         | 200 OK            | `Option<(Vec<u8>, Vec<u8>)>`      |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::pred_incl` returns `Ok`    | 200 OK            | `Option<(Vec<u8>, Vec<u8>)>`      |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::succ` returns `Ok`         | 200 OK            | `Option<(Vec<u8>, Vec<u8>)>`      |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::succ_incl` returns `Ok`    | 200 OK            | `Option<(Vec<u8>, Vec<u8>)>`      |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | Deserialization Errors            | 400 Bad Request   | `String`                          |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `sled::DbResult` `Err`s           | 500 Server Error  | `String`                          |
+/// | --------------------------------- | ----------------- | --------------------------------- |
 pub fn response(request: Request<Body>, tree: Arc<sled::Tree>) -> ResponseFuture {
     match (request.method(), request.uri().path()) {
         (&request::Get::METHOD, request::Get::PATH_AND_QUERY) => {
@@ -214,6 +312,24 @@ pub fn response(request: Request<Body>, tree: Arc<sled::Tree>) -> ResponseFuture
         }
         (&request::Scan::METHOD, request::Scan::PATH_AND_QUERY) => {
             Box::new(concat_and_respond::<request::Scan>(request, tree))
+        }
+        (&request::ScanRange::METHOD, request::ScanRange::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::ScanRange>(request, tree))
+        }
+        (&request::Max::METHOD, request::Max::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Max>(request, tree))
+        }
+        (&request::Pred::METHOD, request::Pred::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Pred>(request, tree))
+        }
+        (&request::PredIncl::METHOD, request::PredIncl::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::PredIncl>(request, tree))
+        }
+        (&request::Succ::METHOD, request::Succ::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Succ>(request, tree))
+        }
+        (&request::SuccIncl::METHOD, request::SuccIncl::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::SuccIncl>(request, tree))
         }
         _ => unimplemented!()
     }
