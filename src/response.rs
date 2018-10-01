@@ -70,6 +70,55 @@ impl IntoResponse for request::Set {
     }
 }
 
+impl IntoResponse for request::Cas {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        let request::Cas { key, old, new } = self;
+        match tree.cas(key, old, new) {
+            Ok(()) => {
+                let res: Result<(), Option<Vec<u8>>> = Ok(());
+                let bytes = serde_json::to_vec(&res)
+                    .expect("failed to serialize result to JSON");
+                Response::new(bytes.into())
+            }
+            Err(sled::Error::CasFailed(opt_bytes)) => {
+                let res: Result<(), Option<Vec<u8>>> = Err(opt_bytes);
+                let bytes = serde_json::to_vec(&res)
+                    .expect("failed to serialize result to JSON");
+                Response::new(bytes.into())
+            }
+            Err(err) => db_err_response(&err),
+        }
+    }
+}
+
+impl IntoResponse for request::Merge {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        let request::Merge { key, value } = self;
+        tree.merge(key, value)
+            .map(|value| {
+                let bytes = serde_json::to_vec(&value)
+                    .expect("failed to serialize value to JSON");
+                Response::builder()
+                    .status(StatusCode::CREATED)
+                    .body(bytes.into())
+                    .expect("failed to construct `Set` response")
+            })
+            .unwrap_or_else(|err| db_err_response(&err))
+    }
+}
+
+impl IntoResponse for request::Flush {
+    fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
+        tree.flush()
+            .map(|value| {
+                let bytes = serde_json::to_vec(&value)
+                    .expect("failed to serialize value to JSON");
+                Response::new(bytes.into())
+            })
+            .unwrap_or_else(|err| db_err_response(&err))
+    }
+}
+
 impl IntoResponse for request::Iter {
     fn into_response(self, tree: Arc<sled::Tree>) -> Response<Body> {
         let iter = tree_iter(tree)
@@ -278,6 +327,14 @@ fn deserialization_err_response(err: &StdError) -> Response<Body> {
 /// | --------------------------------- | ----------------- | --------------------------------- |
 /// | `Tree::set` returns `Ok`          | 201 Created       | `()`                              |
 /// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::cas` returns `Ok`          | 200 Ok            | `Ok(())`                          |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::cas` returns `CasFailed`   | 200 Ok            | `Err(Vec<u8>)`                    |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::merge` returns `Ok`        | 200 Ok            | `()`                              |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+/// | `Tree::flush` returns `Ok`        | 200 Ok            | `()`                              |
+/// | --------------------------------- | ----------------- | --------------------------------- |
 /// | `Tree::iter`                      | 200 OK            | Stream of `(Vec<u8>, Vec<u8>)`    |
 /// | --------------------------------- | ----------------- | --------------------------------- |
 /// | `Tree::scan`                      | 200 OK            | Stream of `(Vec<u8>, Vec<u8>)`    |
@@ -306,6 +363,15 @@ pub fn response(request: Request<Body>, tree: Arc<sled::Tree>) -> ResponseFuture
         }
         (&request::Set::METHOD, request::Set::PATH_AND_QUERY) => {
             Box::new(concat_and_respond::<request::Set>(request, tree))
+        }
+        (&request::Cas::METHOD, request::Cas::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Cas>(request, tree))
+        }
+        (&request::Merge::METHOD, request::Merge::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Merge>(request, tree))
+        }
+        (&request::Flush::METHOD, request::Flush::PATH_AND_QUERY) => {
+            Box::new(concat_and_respond::<request::Flush>(request, tree))
         }
         (&request::Iter::METHOD, request::Iter::PATH_AND_QUERY) => {
             Box::new(concat_and_respond::<request::Iter>(request, tree))
