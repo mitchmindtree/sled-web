@@ -53,6 +53,31 @@ pub struct Set {
     pub value: Value,
 }
 
+/// Compare and swap. Capable of unique creation, conditional modification, or deletion.
+///
+/// If old is None, this will only set the value if it doesn't exist yet. If new is None, will
+/// delete the value if old is correct. If both old and new are Some, will modify the value if old
+/// is correct.
+///
+/// If Tree is read-only, will do nothing.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Cas {
+    pub key: Key,
+    pub old: Option<Value>,
+    pub new: Option<Value>,
+}
+
+/// Merge a new value into the total state for a key.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Merge {
+    pub key: Key,
+    pub value: Value,
+}
+
+/// Flushes any pending IO buffers to disk to ensure durability.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Flush;
+
 /// Iterate over all entries within the `Tree`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Iter;
@@ -115,6 +140,21 @@ impl RequestType for Set {
     const PATH_AND_QUERY: &'static str = "/tree/entries/set";
 }
 
+impl RequestType for Cas {
+    const METHOD: Method = Method::PUT;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/cas";
+}
+
+impl RequestType for Merge {
+    const METHOD: Method = Method::POST;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/merge";
+}
+
+impl RequestType for Flush {
+    const METHOD: Method = Method::PUT;
+    const PATH_AND_QUERY: &'static str = "/tree/entries/flush";
+}
+
 impl RequestType for Iter {
     const METHOD: Method = Method::GET;
     const PATH_AND_QUERY: &'static str = "/tree/entries/iter";
@@ -166,6 +206,21 @@ impl IntoBody for Del {
 }
 
 impl IntoBody for Set {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Cas {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Merge {
+    type Body = Self;
+    fn into_body(self) -> Self::Body { self }
+}
+
+impl IntoBody for Flush {
     type Body = Self;
     fn into_body(self) -> Self::Body { self }
 }
@@ -303,4 +358,19 @@ pub fn succ(base_uri: Uri, key: Key) -> Request<Body> {
 /// Shorthand for `from(base_uri, SuccIncl { key })`.
 pub fn succ_incl(base_uri: Uri, key: Key) -> Request<Body> {
     from(base_uri, SuccIncl { key })
+}
+
+/// Shorthand for `from(base_uri, Cas { key, old, new })`.
+pub fn cas(base_uri: Uri, key: Key, old: Option<Value>, new: Option<Value>) -> Request<Body> {
+    from(base_uri, Cas { key, old, new })
+}
+
+/// Shorthand for `from(base_uri, Merge { key, value })`.
+pub fn merge(base_uri: Uri, key: Key, value: Value) -> Request<Body> {
+    from(base_uri, Merge { key, value })
+}
+
+/// Shorthand for `from(base_uri, Flush)`.
+pub fn flush(base_uri: Uri) -> Request<Body> {
+    from(base_uri, Flush)
 }

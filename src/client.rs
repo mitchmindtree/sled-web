@@ -8,7 +8,7 @@ use std::error::Error as StdError;
 use std::fmt;
 
 /// A hyper `Client` wrapper that simplifies communication with the sled `Tree` server.
-#[derive( Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Client {
     uri: Uri,
     client: hyper::Client<HttpConnector, Body>,
@@ -59,6 +59,41 @@ impl Client {
     /// Send the given key and value to the database for insertion into the `sled::Tree`.
     pub fn set(&self, key: Key, value: Value) -> impl Future<Item = (), Error = Error> {
         let request = request::set(self.uri.clone(), key, value);
+        request_concat_and_deserialize(self, request)
+    }
+
+    /// A method for performing the `Cas` request.
+    ///
+    /// Compare and swap. Capable of unique creation, conditional modification, or deletion.
+    ///
+    /// If old is None, this will only set the value if it doesn't exist yet. If new is None, will
+    /// delete the value if old is correct. If both old and new are Some, will modify the value if
+    /// old is correct.
+    ///
+    /// If Tree is read-only, will do nothing.
+    pub fn cas(
+        &self,
+        key: Key,
+        old: Option<Value>,
+        new: Option<Value>,
+    ) -> impl Future<Item = Result<(), Option<Value>>, Error = Error> {
+        let request = request::cas(self.uri.clone(), key, old, new);
+        request_concat_and_deserialize(self, request)
+    }
+
+    /// A method for performing the `Merge` request.
+    ///
+    /// Merge a new value into the total state for a key.
+    pub fn merge(&self, key: Key, value: Value) -> impl Future<Item = (), Error = Error> {
+        let request = request::merge(self.uri.clone(), key, value);
+        request_concat_and_deserialize(self, request)
+    }
+
+    /// A method for performing the `Flush` request.
+    ///
+    /// Flushes any pending IO buffers to disk to ensure durability.
+    pub fn flush(&self) -> impl Future<Item = (), Error = Error> {
+        let request = request::flush(self.uri.clone());
         request_concat_and_deserialize(self, request)
     }
 
