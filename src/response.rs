@@ -240,7 +240,7 @@ impl IntoResponse for request::SuccIncl {
 }
 
 impl Iterator for Iter {
-    type Item = sled::DbResult<(Vec<u8>, Vec<u8>), ()>;
+    type Item = sled::Result<(Vec<u8>, Vec<u8>), ()>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
     }
