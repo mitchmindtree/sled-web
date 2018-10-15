@@ -1,3 +1,4 @@
+use futures::{Async, Poll};
 use hyper::{self, Body, Request, Response, StatusCode, Uri};
 use hyper::client::HttpConnector;
 use hyper::rt::{Future, Stream};
@@ -26,6 +27,16 @@ pub type Key = Vec<u8>;
 pub type Value = Vec<u8>;
 pub type Entry = (Vec<u8>, Vec<u8>);
 
+/// A stream that converts a hyper `Body` into a stream yielding JSON `Value`s.
+///
+/// Assumes that the `Body` will never yield parts of two separate JSON objects within the same
+/// chunk, but may split individual JSON objects across multiple chunks.
+#[derive(Debug)]
+pub struct BodyToJsonChunks {
+    body: Body,
+    buffer: Vec<u8>,
+}
+
 impl Client {
     /// Create a new `Client` pointing towards the given `Uri`.
     ///
@@ -33,7 +44,7 @@ impl Client {
     /// following path. This following path will be created as necessary within each of the request
     /// calls.
     pub fn new(uri: Uri) -> Self {
-        let client = hyper::Client::new();
+        let client = hyper::Client::builder().build_http();
         Client { uri, client }
     }
 
@@ -168,6 +179,27 @@ impl Client {
     }
 }
 
+impl Stream for BodyToJsonChunks {
+    type Item = serde_json::Value;
+    type Error = Error;
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        loop {
+            match self.body.poll() {
+                Err(err) => return Err(err.into()),
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Async::Ready(None)) => return Ok(Async::Ready(None)),
+                Ok(Async::Ready(Some(chunk))) => self.buffer.extend(chunk),
+            }
+            let v = match serde_json::from_slice::<serde_json::Value>(&self.buffer) {
+                Err(_err) => continue,
+                Ok(v) => v,
+            };
+            self.buffer.clear();
+            return Ok(Async::Ready(Some(v)));
+        }
+    }
+}
+
 impl StdError for Error {
     fn description(&self) -> &str {
         match *self {
@@ -203,23 +235,30 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<Body> for BodyToJsonChunks {
+    fn from(body: Body) -> Self {
+        let buffer = vec![];
+        BodyToJsonChunks { body, buffer }
+    }
+}
+
 /// Concatenate and deserialize a single-chunk reponse.
 fn concat_and_deserialize<T>(response: Response<Body>) -> impl Future<Item = T, Error = Error>
 where
     T: for<'de> Deserialize<'de>,
 {
     let status = response.status();
-    response
-        .into_body()
-        .concat2()
-        .map_err(Error::Hyper)
-        .and_then(move |chunk| {
+    BodyToJsonChunks::from(response.into_body())
+        .and_then(move |value| {
             if status == StatusCode::INTERNAL_SERVER_ERROR {
-                let s = serde_json::from_slice(&chunk).map_err(Error::SerdeJson)?;
+                let s = serde_json::from_value(value).map_err(Error::SerdeJson)?;
                 return Err(Error::Server(s));
             }
-            serde_json::from_slice(&chunk).map_err(Error::SerdeJson)
+            serde_json::from_value::<T>(value).map_err(Error::SerdeJson)
         })
+        .into_future()
+        .map_err(|(err, _)| err)
+        .and_then(|(opt, _stream)| opt.ok_or_else(|| unreachable!()))
 }
 
 /// Convert the given response body chunks into a stream of deserialized items.
@@ -227,10 +266,8 @@ fn stream_and_deserialize<T>(response: Response<Body>) -> impl Stream<Item = T, 
 where
     T: for<'de> Deserialize<'de>,
 {
-    response
-        .into_body()
-        .map_err(Error::Hyper)
-        .and_then(|chunk| serde_json::from_slice(&chunk).map_err(Error::SerdeJson))
+    BodyToJsonChunks::from(response.into_body())
+        .and_then(|json| serde_json::from_value(json).map_err(Error::SerdeJson))
 }
 
 /// Submit the given request, then concatenate and deserialize a single-chunk response.

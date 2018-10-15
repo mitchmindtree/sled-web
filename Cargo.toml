@@ -1,6 +1,6 @@
 [package]
 name = "sled-web"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 description = "An extension of the `sled` crate that allows for accessing a `sled::Tree` via a client/server API using the `hyper` web framework crate."
 readme = "README.md"
