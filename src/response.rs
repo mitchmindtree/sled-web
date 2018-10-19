@@ -7,6 +7,7 @@ use serde_json;
 use sled;
 use sled_search;
 use std::error::Error as StdError;
+use std::fmt;
 use std::mem;
 use std::sync::Arc;
 
@@ -18,6 +19,10 @@ pub trait IntoResponse {
 
 /// A response to some request wrapped in a `Future`.
 pub type ResponseFuture = Box<Future<Item = Response<Body>, Error = hyper::Error> + Send>;
+
+/// The `Err` returned by `response` upon receiving a request for which no valid response is known.
+#[derive(Debug)]
+pub struct UnknownRequest;
 
 /// A wrapper around the `sled::Tree` iterator which is `'static`.
 ///
@@ -246,6 +251,18 @@ impl Iterator for Iter {
     }
 }
 
+impl StdError for UnknownRequest {
+    fn description(&self) -> &str {
+        "no known valid response for the given request"
+    }
+}
+
+impl fmt::Display for UnknownRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
 /// Produce an iterator over all elements within the given `Tree` with a static lifetime.
 fn tree_iter(tree: Arc<sled::Tree>) -> Iter {
     let _tree = tree.clone();
@@ -353,50 +370,70 @@ fn deserialization_err_response(err: &StdError) -> Response<Body> {
 /// | --------------------------------- | ----------------- | --------------------------------- |
 /// | `sled::DbResult` `Err`s           | 500 Server Error  | `String`                          |
 /// | --------------------------------- | ----------------- | --------------------------------- |
-pub fn response(request: Request<Body>, tree: Arc<sled::Tree>) -> ResponseFuture {
+/// | <unknown request>                 | 404 Not Found     | <empty>                           |
+/// | --------------------------------- | ----------------- | --------------------------------- |
+pub fn response(
+    request: Request<Body>,
+    tree: Arc<sled::Tree>,
+) -> Result<ResponseFuture, UnknownRequest> {
     match (request.method(), request.uri().path()) {
         (&request::Get::METHOD, request::Get::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Get>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Get>(request, tree)))
         }
         (&request::Del::METHOD, request::Del::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Del>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Del>(request, tree)))
         }
         (&request::Set::METHOD, request::Set::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Set>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Set>(request, tree)))
         }
         (&request::Cas::METHOD, request::Cas::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Cas>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Cas>(request, tree)))
         }
         (&request::Merge::METHOD, request::Merge::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Merge>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Merge>(request, tree)))
         }
         (&request::Flush::METHOD, request::Flush::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Flush>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Flush>(request, tree)))
         }
         (&request::Iter::METHOD, request::Iter::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Iter>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Iter>(request, tree)))
         }
         (&request::Scan::METHOD, request::Scan::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Scan>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Scan>(request, tree)))
         }
         (&request::ScanRange::METHOD, request::ScanRange::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::ScanRange>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::ScanRange>(request, tree)))
         }
         (&request::Max::METHOD, request::Max::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Max>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Max>(request, tree)))
         }
         (&request::Pred::METHOD, request::Pred::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Pred>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Pred>(request, tree)))
         }
         (&request::PredIncl::METHOD, request::PredIncl::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::PredIncl>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::PredIncl>(request, tree)))
         }
         (&request::Succ::METHOD, request::Succ::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::Succ>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::Succ>(request, tree)))
         }
         (&request::SuccIncl::METHOD, request::SuccIncl::PATH_AND_QUERY) => {
-            Box::new(concat_and_respond::<request::SuccIncl>(request, tree))
+            Ok(Box::new(concat_and_respond::<request::SuccIncl>(request, tree)))
         }
-        _ => unimplemented!()
+        _ => Err(UnknownRequest)
     }
+}
+
+/// A function for converting a `Result<ResponseFuture, UnknownRequest>` into a `ResponseFuture`
+/// where the `UnknownRequest` is translated into a `404` response.
+pub fn or_404(
+    result: Result<ResponseFuture, UnknownRequest>,
+) -> impl Future<Item = Response<Body>, Error = hyper::Error> + Send {
+    result
+        .unwrap_or_else(|UnknownRequest| {
+            let response = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(vec![].into())
+                .expect("failed to construct NOT_FOUND response");
+            Box::new(futures::future::ok(response)) as _
+        })
 }

@@ -1,7 +1,7 @@
 use hyper::{self, Server};
 use hyper::rt::Future;
 use hyper::service::service_fn;
-use response::response;
+use response::{or_404, response};
 use sled;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -63,12 +63,15 @@ impl ConfigBuilder {
 /// Build the hyper `Server` with the given configuration and `sled::Tree`.
 ///
 /// Returns a `Future` representing the `Server`'s computation.
+///
+/// To create and run your own server you can use the `response` function which simply translates
+/// requests to response futures.
 pub fn new(config: Config, tree: Arc<sled::Tree>) -> impl Future<Item = (), Error = hyper::Error> {
     Server::bind(&config.addr)
         .serve(move || {
             let tree = tree.clone();
             service_fn(move |req| {
-                response(req, tree.clone())
+                or_404(response(req, tree.clone()))
             })
         })
 }
